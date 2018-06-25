@@ -1,6 +1,9 @@
 package mapreduce
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 //
 // schedule() starts and waits for all tasks in the given phase (mapPhase
@@ -12,6 +15,7 @@ import "fmt"
 // existing registered workers (if any) and new ones as they register.
 //
 func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, registerChan chan string) {
+
 	var ntasks int
 	var n_other int // number of inputs (for reduce) or outputs (for map)
 	switch phase {
@@ -30,5 +34,53 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 	//
 	// Your code here (Part III, Part IV).
 	//
+
+	var wg sync.WaitGroup
+	wg.Add(ntasks)
+
+	for i := 0; i < ntasks; i++ {
+		doTaskArgs := DoTaskArgs{
+			jobName,
+			mapFiles[i],
+			phase,
+			i,
+			n_other,
+		}
+		go func(doTaskArgs DoTaskArgs) {
+			for {
+				idleWorker := <-registerChan
+				ok := call(idleWorker, "Worker.DoTask", doTaskArgs, nil)
+				if ok {
+					wg.Done()
+					registerChan <- idleWorker
+					break
+				}
+			}
+		}(doTaskArgs)
+	}
+
+	// for i := 0; i < ntasks; i++ {
+	// 	doTaskArgs := DoTaskArgs{
+	// 		jobName,
+	// 		mapFiles[i],
+	// 		phase,
+	// 		i,
+	// 		n_other,
+	// 	}
+	// 	idleWorker := <-registerChan
+
+	// 	ok := call(idleWorker, "Worker.DoTask", doTaskArgs, nil)
+	// 	if ok {
+	// 		wg.Done()
+	// 		println("done")
+	// 		println(cap(registerChan))
+	// 		println(len(registerChan))
+	// 		registerChan <- idleWorker
+	// 		println("done")
+	// 	}
+	// }
+
+	wg.Wait()
+
 	fmt.Printf("Schedule: %v done\n", phase)
 }

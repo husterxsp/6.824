@@ -1,5 +1,13 @@
 package mapreduce
 
+import (
+	"encoding/json"
+	// "fmt"
+	"log"
+	"os"
+	// "io/ioutil"
+)
+
 func doReduce(
 	jobName string, // the name of the whole MapReduce job
 	reduceTask int, // which reduce task this is
@@ -44,4 +52,44 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
+
+	// reduce 的工作，接收所有map发过来的文件，先对 相同的key值进行合并，调用 reduceF
+	// 然后写入磁盘
+
+	// 读取，解码，合并key
+	kvMap := make(map[string][]string)
+	for i := 0; i < nMap; i++ {
+		reduceFileName := reduceName(jobName, i, reduceTask)
+		file, err := os.Open(reduceFileName)
+		if err != nil {
+			log.Fatal("reduceFile: ", err)
+		}
+
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			err = dec.Decode(&kv)
+			if err != nil {
+				break
+			}
+			// 此处用hashmap的方式合并相同key,当然也可以用排序的方式
+			kvMap[kv.Key] = append(kvMap[kv.Key], kv.Value)
+		}
+		file.Close()
+	}
+
+	// fmt.Println("kvMap:", len(kvMap))
+	// fmt.Println("outFile:", outFile)
+	// reduceF
+	file, err := os.OpenFile(outFile, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0660)
+	if err != nil {
+		log.Fatal("outFile: ", err)
+	}
+	enc := json.NewEncoder(file)
+	for k, v := range kvMap {
+		enc.Encode(KeyValue{k, reduceF(k, v)})
+	}
+
+	file.Close()
+
 }

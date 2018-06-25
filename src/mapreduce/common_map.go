@@ -1,7 +1,11 @@
 package mapreduce
 
 import (
+	"encoding/json"
+	"fmt"
 	"hash/fnv"
+	"io/ioutil"
+	"os"
 )
 
 func doMap(
@@ -53,6 +57,41 @@ func doMap(
 	//
 	// Your code here (Part I).
 	//
+
+	// Map的工作，读取文件，进行处理后，再分发给reduce
+
+	byteData, err := ioutil.ReadFile(inFile) // just pass the file name
+	if err != nil {
+		fmt.Print(err)
+	}
+
+	kvSlice := mapF(inFile, string(byteData))
+
+	reduceFileArr := make([][]KeyValue, nReduce)
+	for i := 0; i < len(kvSlice); i++ {
+		r := ihash(kvSlice[i].Key) % nReduce
+		// 先保存再一次性写入，但如果数据量太大无法保存，就有问题
+		// 应该不会有超出内存的问题，map的大小 64M
+		reduceFileArr[r] = append(reduceFileArr[r], kvSlice[i])
+	}
+
+	for i := 0; i < nReduce; i++ {
+		reduceFileName := reduceName(jobName, mapTask, i)
+
+		file, _ := os.OpenFile(reduceFileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0660)
+
+		enc := json.NewEncoder(file)
+		for j := 0; j < len(reduceFileArr[i]); j++ {
+			enc.Encode(reduceFileArr[i][j])
+		}
+
+		file.Close()
+		// f.Write( []byte(fmt.Sprintf("%v", reduceFileArr[i])) );
+		// 这种方式写入，每次写会覆盖以前的内容
+		// 而且有权限问题
+		// ioutil.WriteFile(reduceFileName, []byte(fmt.Sprintf("%v", reduceFileArr[i])), os.ModeAppend)
+	}
+
 }
 
 func ihash(s string) int {
