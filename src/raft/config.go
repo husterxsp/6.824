@@ -8,7 +8,7 @@ package raft
 // test with the original before submitting.
 //
 
-import "labrpc"
+import "../labrpc"
 import "log"
 import "sync"
 import "testing"
@@ -301,6 +301,8 @@ func (cfg *config) checkOneLeader() int {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 
 		leaders := make(map[int][]int)
+
+
 		for i := 0; i < cfg.n; i++ {
 			if cfg.connected[i] {
 				if term, leader := cfg.rafts[i].GetState(); leader {
