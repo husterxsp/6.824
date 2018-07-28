@@ -19,7 +19,6 @@ package raft
 
 import (
 	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -73,12 +72,14 @@ type Raft struct {
 	n           int
 	voteNum     int
 	state       int // 0 follower, 1 candidate, 2 leader
+
+	applyCh chan ApplyMsg
 }
 
 // a struct to hold information about each log entry.
 type Entry struct {
 	LogIndex int
-	Conmand  string
+	Command  int
 	Term     int
 }
 
@@ -269,37 +270,100 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
-// 发送心跳请求
 //
 // example AppendEntries RPC handler.
 //
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	// 心跳协议
 
-	fmt.Println(rf.me, "收到心跳")
+	if args.Entries == nil {
+		fmt.Println(rf.me, "收到 heartbeat")
+	} else {
+		fmt.Println(rf.me, "收到 appendEntries")
+	}
+
+	rf.lastReceive = now()
+
+	// 如果 term < currentTerm 就返回 false
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		reply.Success = false
+		return
+	}
+
+	// 如果接收到的 RPC 请求或响应中，任期号T > currentTerm，那么就令 currentTerm 等于 T，并切换状态为跟随者
+	if args.Term > rf.currentTerm {
+		rf.currentTerm = args.Term
+		rf.state = 0
+	}
 
 	if args.Entries == nil {
 		// heartbeat
-		rf.lastReceive = now()
-		if args.Term <= rf.currentTerm {
-
-			reply.Success = false
-			reply.Term = rf.currentTerm
-
-		} else if args.Term > rf.currentTerm {
-			//如果接收到的 RPC 请求或响应中，任期号T > currentTerm，那么就令 currentTerm 等于 T，并切换状态为跟随者（5.1 节）
-			rf.currentTerm = args.Term
-			rf.state = 0
-
+		if args.Term >= rf.currentTerm {
 			reply.Success = true
+		}
+	} else {
+		// append 日志
+
+		if len(rf.log) == 0 {
+			reply.Success = true
+			// 一开始log为空，直接append
+			for i := 0; i < len(args.Entries); i++ {
+				rf.log = append(rf.log, args.Entries[i])
+			}
+		} else if len(rf.log) < args.PrevLogIndex {
+			// 当前log比较少
+			reply.Success = false
+
+		} else {
+
+			fmt.Println(rf.me, "len(rf.log)", rf.log)
+			fmt.Println("args.PrevLogIndex", args.PrevLogIndex)
+			prevLog := rf.log[args.PrevLogIndex - 1]
+
+			//如果日志在 prevLogIndex 位置处的日志条目的任期号和 prevLogTerm 不匹配，则返回 false
+
+			// 这里的匹配应该是 term和cmd都匹配吧？
+			// 难道任期号和索引值相同，command也一定相同？
+			if prevLog.Term != args.PrevLogTerm {
+
+				rf.log = rf.log[0:args.PrevLogIndex-1]
+
+			} else {
+				reply.Success = true
+				for i := 0; i < len(args.Entries); i++ {
+					rf.log = append(rf.log, args.Entries[i])
+				}
+			}
 
 		}
 
-	} else {
-		//	append 日志
-
 	}
 
+	// 不管是哪个if分支，最后肯定有这个
+	reply.Term = rf.currentTerm
+
+	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+	// 为什么？
+	if args.LeaderCommit > rf.commitIndex {
+
+		fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
+		fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex",rf.log)
+
+		// commit之后告诉tester，用于测试
+		for i:=rf.commitIndex+1; i <= args.LeaderCommit ;i++  {
+			applyMsg := ApplyMsg{
+				CommandValid: true,
+				Command:      rf.log[i - 1].Command,
+				CommandIndex: i,
+			}
+			fmt.Println(rf.me,"send to channel")
+			rf.applyCh <- applyMsg
+		}
+
+		rf.commitIndex = args.LeaderCommit
+	}
+
+	//fmt.Println(reply)
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -307,29 +371,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	return ok
 }
 
-//
-// the service using Raft (e.g. a k/v server) wants to start
-// agreement on the next command to be appended to Raft's log. if this
-// server isn't the leader, returns false. otherwise start the
-// agreement and return immediately. there is no guarantee that this
-// command will ever be committed to the Raft log, since the leader
-// may fail or lose an election. even if the Raft instance has been killed,
-// this function should return gracefully.
-//
-// the first return value is the index that the command will appear at
-// if it's ever committed. the second return value is the current
-// term. the third return value is true if this server believes it is
-// the leader.
-//
-func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
-
-	// Your code here (2B).
-
-	return index, term, isLeader
-}
+// Start
 
 //
 // the tester calls Kill() when a Raft instance won't
@@ -341,156 +383,4 @@ func (rf *Raft) Kill() {
 	// Your code here, if desired.
 }
 
-//
-// the service or tester wants to create a Raft server. the ports
-// of all the Raft servers (including this one) are in peers[]. this
-// server's port is peers[me]. all the servers' peers[] arrays
-// have the same order. persister is a place for this server to
-// save its persistent state, and also initially holds the most
-// recent saved state, if any. applyCh is a channel on which the
-// tester or service expects Raft to send ApplyMsg messages.
-// Make() must return quickly, so it should start goroutines
-// for any long-running work.
-//
-//
-
-// 设置超时时间 200 ~ 350 ， 大于题目中说的100就好吧（10 heartbeats per second）
-func randTimeout() int {
-	rand.Seed(time.Now().UnixNano())
-	return 300 + (rand.Int() % 300)
-}
-func Make(peers []*labrpc.ClientEnd, me int,
-	persister *Persister, applyCh chan ApplyMsg) *Raft {
-
-	rf := &Raft{}
-	rf.peers = peers
-	rf.persister = persister
-	rf.me = me
-
-	// Your initialization code here (2A, 2B, 2C).
-
-	rf.currentTerm = 0
-
-	rf.timeout = randTimeout()
-	rf.lastReceive = 0
-	rf.n = len(peers)
-	rf.votedFor = -1
-
-	fmt.Println("timeout: ", rf.timeout)
-
-	go func(rf *Raft) {
-		for {
-			time.Sleep(time.Duration(rf.timeout) * time.Millisecond)
-
-			if (now()-rf.lastReceive > rf.timeout && rf.state == 0) || rf.state == 1 {
-
-				fmt.Println(rf.me, "开始选举")
-
-				// 超时重新开始选举
-				rf.currentTerm += 1
-				rf.voteNum = 1
-				rf.timeout = randTimeout()
-				rf.votedFor = -1
-				rf.state = 1
-
-				fmt.Println(rf.me, "当前状态:", "term", rf.currentTerm, "state", rf.state)
-
-				for i := 0; i < len(peers); i++ {
-					if i != rf.me {
-						// 新开线程，并行发送RequestVote
-						go func(rf *Raft, target int) {
-							lastLogIndex := len(rf.log)
-
-							lastLogTerm := 0
-							if lastLogIndex != 0 {
-								lastLogTerm = rf.log[lastLogIndex-1].Term
-							}
-
-							args := RequestVoteArgs{rf.currentTerm, rf.me, lastLogIndex, lastLogTerm}
-							reply := RequestVoteReply{}
-
-							ok := rf.sendRequestVote(target, &args, &reply)
-
-							if !ok || !reply.VoteGranted {
-								return
-							}
-
-							fmt.Println(rf.me, "vote receive from", target, reply)
-
-							// 收到投票，原子操作加1
-							rf.mu.Lock()
-							rf.voteNum += 1
-							rf.mu.Unlock()
-							fmt.Println(rf.me, "当前票数", rf.voteNum)
-
-							rf.checkElection()
-
-						}(rf, i)
-					}
-				}
-			}
-
-		}
-
-	}(rf)
-
-	// initialize from state persisted before a crash
-	rf.readPersist(persister.ReadRaftState())
-
-	return rf
-}
-
-func (rf *Raft) checkElection() {
-	if rf.voteNum > rf.n/2 && rf.state == 1 {
-		fmt.Println(rf.me, "选举成功")
-		rf.state = 2
-		// 选举成功
-		// 发送不包含 log 的心跳协议
-
-		// 周期心跳协议
-		for {
-
-			if rf.state != 2 {
-				break
-			}
-
-			time.Sleep(time.Duration(100) * time.Millisecond)
-			item, isleader := rf.GetState()
-			fmt.Println(rf.me, "当前状态", "term", item, "isleader", isleader, "state", rf.state)
-
-			for j := 0; j < rf.n; j++ {
-				if j != rf.me {
-					fmt.Println(rf.me, "sendAppendEntries", j)
-					go func(rf *Raft, j int) {
-						appendArgs := AppendEntriesArgs{
-							Term:         rf.currentTerm,
-							LeaderId:     rf.me,
-							PrevLogIndex: 0,
-							PrevLogTerm:  0,
-							Entries:      nil,
-							LeaderCommit: 0,
-						}
-						appendReply := AppendEntriesReply{
-							Term:    0,
-							Success: false,
-						}
-						rf.sendAppendEntries(j, &appendArgs, &appendReply)
-
-						//fmt.Println( rf.me, "sendAppendEntries", j, "结果", ok)
-
-						// if ok {
-						// 	if !appendReply.Success {
-						// 		rf.currentTerm = appendReply.Term
-						// 		rf.state = 0
-						// 	}
-						// }
-
-					}(rf, j)
-				}
-			}
-
-		}
-
-	}
-
-}
+// Election

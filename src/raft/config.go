@@ -167,6 +167,7 @@ func (cfg *config) start1(i int) {
 	applyCh := make(chan ApplyMsg)
 	go func() {
 		for m := range applyCh {
+			fmt.Println(i, "applyCh message", m)
 			err_msg := ""
 			if m.CommandValid == false {
 				// ignore other types of ApplyMsg
@@ -301,7 +302,6 @@ func (cfg *config) checkOneLeader() int {
 		time.Sleep(time.Duration(ms) * time.Millisecond)
 
 		leaders := make(map[int][]int)
-
 
 		for i := 0; i < cfg.n; i++ {
 			if cfg.connected[i] {
@@ -454,6 +454,7 @@ func (cfg *config) one(cmd int, expectedServers int, retry bool) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
+				fmt.Println("cfg.nCommitted(index)", nd, cmd1)
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd2, ok := cmd1.(int); ok && cmd2 == cmd {
