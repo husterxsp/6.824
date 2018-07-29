@@ -156,6 +156,7 @@ func TestFailNoAgree2B(t *testing.T) {
 
 	// 3 of 5 followers disconnect
 	leader := cfg.checkOneLeader()
+	fmt.Println("disconnect ", (leader+1)%servers, (leader+2)%servers, (leader+3)%servers)
 	cfg.disconnect((leader + 1) % servers)
 	cfg.disconnect((leader + 2) % servers)
 	cfg.disconnect((leader + 3) % servers)
@@ -175,6 +176,7 @@ func TestFailNoAgree2B(t *testing.T) {
 		t.Fatalf("%v committed but no majority", n)
 	}
 
+	fmt.Println("connect ", (leader+1)%servers, (leader+2)%servers, (leader+3)%servers)
 	// repair
 	cfg.connect((leader + 1) % servers)
 	cfg.connect((leader + 2) % servers)

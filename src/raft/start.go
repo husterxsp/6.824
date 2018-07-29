@@ -54,10 +54,16 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			continue
 		}
 
-		go func(rf *Raft, i int) {
+		go func(rf *Raft, i int, nextIndex int) {
 		Loop:
 
+			// 还是并发导致的错误，
+			if rf.nextIndex[i] > len(rf.log) {
+				return
+			}
+
 			fmt.Println(rf.me, "start append", cmd, "to", i)
+			fmt.Println("rf.nextIndex[i], rf.log", rf.nextIndex[i], rf.log)
 			args := AppendEntriesArgs{
 				Term:         rf.currentTerm,
 				LeaderId:     rf.me,
@@ -104,17 +110,20 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 			}
 
-		}(rf, i)
+		}(rf, i, rf.nextIndex[i])
 	}
 
 	// 检查log是否复制成功
 	go func(rf *Raft, cmd int) {
 		for {
-			fmt.Println(rf.me, "start nCommit", index, nCommit)
+			// 一种情况，由于是并发的，所以可能 CommandIndex=3的消息比CommandIndex=2的消息先commit?
+			// 此时应该加个同步，CommandIndex=3 commit的时候，检查一下，
+			fmt.Println(rf.me, "nCommit", index, nCommit)
 			if rf.state != 2 {
 				break
 			}
-			if nCommit >= rf.n/2 {
+			if nCommit > rf.n/2 && rf.commitIndex == index - 1 {
+
 				// commit成功
 				rf.mu.Lock()
 				rf.commitIndex++
@@ -133,6 +142,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}(rf, cmd)
-	
+
 	return index, term, isLeader
 }

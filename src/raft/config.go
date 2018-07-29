@@ -190,7 +190,11 @@ func (cfg *config) start1(i int) {
 				cfg.mu.Unlock()
 
 				if m.CommandIndex > 1 && prevok == false {
-					fmt.Println(m.CommandIndex, prevok)
+					fmt.Println("--------")
+					for i := 0; i < cfg.n; i++ {
+						fmt.Println("---", cfg.logs[i])
+					}
+					fmt.Println("--------")
 					err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.CommandIndex)
 				}
 			} else {
@@ -474,7 +478,7 @@ func (cfg *config) one(cmd int, expectedServers int, retry bool) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
-				fmt.Println("cfg.nCommitted(index)", nd, cmd1)
+				// fmt.Println("cfg.nCommitted(index)", nd, cmd1)
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd2, ok := cmd1.(int); ok && cmd2 == cmd {

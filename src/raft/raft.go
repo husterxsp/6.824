@@ -74,6 +74,9 @@ type Raft struct {
 	state       int // 0 follower, 1 candidate, 2 leader
 
 	applyCh chan ApplyMsg
+
+
+	applyChArr []int
 }
 
 // a struct to hold information about each log entry.
@@ -206,6 +209,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// votedFor在下一轮选举的时候要清空？
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && checkLog(rf, args) {
 
+		fmt.Println(rf.me, "rf.votedFor",rf.votedFor)
 		reply.VoteGranted = true
 
 		rf.votedFor = args.CandidateId
@@ -277,10 +281,13 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 //
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 
+	// 一轮选举结束，应该重新初始化的一些变量
+	rf.votedFor = -1
+
 	if args.Entries == nil {
-		//fmt.Println(rf.me, "收到 heartbeat")
+		fmt.Println(rf.me, "收到 heartbeat")
 	} else {
-		fmt.Println(rf.me, "收到 appendEntries")
+		fmt.Println(rf.me, "收到 appendEntries", "rf.log",rf.log, "args.Entries", args.Entries)
 	}
 
 	rf.lastReceive = now()
@@ -308,8 +315,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// append 日志
 
 
-		fmt.Println(rf.me, "args.PrevLogIndex",args.PrevLogIndex)
-		fmt.Println(rf.me, "len(rf.log)",len(rf.log))
+		//fmt.Println(rf.me, "args.PrevLogIndex",args.PrevLogIndex)
+		//fmt.Println(rf.me, "len(rf.log)",len(rf.log))
 		if len(rf.log) == 0 {
 			// 初始情况len==0
 			reply.Success = true
@@ -334,18 +341,27 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				reply.Success = true
 
 			} else {
+				//fmt.Println(rf.me, args.PrevLogIndex)
 				prevLog := rf.log[args.PrevLogIndex - 1]
 
 				//如果日志在 prevLogIndex 位置处的日志条目的任期号和 prevLogTerm 不匹配，则返回 false
 
 				// 这里的匹配应该是 term和cmd都匹配吧？
 				// 难道任期号和索引值相同，command也一定相同？
+
+				//fmt.Println(rf.me, "prevLog.Term != args.PrevLogTerm", prevLog.Term, args.PrevLogTerm)
+
 				if prevLog.Term != args.PrevLogTerm {
 
 					rf.log = rf.log[0:args.PrevLogIndex-1]
 
 				} else {
-					fmt.Println(rf.me, "append?")
+					if len(rf.log) > args.PrevLogIndex {
+						rf.log = rf.log[0:args.PrevLogIndex]
+					}
+
+					fmt.Println(rf.me, rf.log)
+					//fmt.Println(rf.me, "append", args.Entries)
 					reply.Success = true
 					for i := 0; i < len(args.Entries); i++ {
 						rf.log = append(rf.log, args.Entries[i])
@@ -364,16 +380,22 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	// 为什么？
-	fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
+	//fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
 	if args.LeaderCommit > rf.commitIndex {
 
 		//fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
 		//fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex", rf.log)
 
 		tmpIndex := rf.commitIndex
+
+		// 一种可能的情况，当前server disconnect，此时 leader仍能commit,LeaderCommit还在增加，
+		// 等当前server再次connect的时候，commitIndex比较小，而且log比较少。
+
 		rf.commitIndex = Min(args.LeaderCommit, len(rf.log))
 
 		// commit之后告诉tester，用于测试
+
+
 		for i:=tmpIndex+1; i <= rf.commitIndex ;i++  {
 			applyMsg := ApplyMsg{
 				CommandValid: true,
@@ -381,11 +403,11 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				CommandIndex: i,
 			}
 			fmt.Println(rf.me,"send to channel")
+
 			rf.applyCh <- applyMsg
+
 		}
 
-		// 一种可能的情况，当前server disconnect，此时 leader仍能commit,LeaderCommit还在增加，
-		// 等当前server再次connect的时候，commitIndex比较小，而且log比较少。
 
 	}
 

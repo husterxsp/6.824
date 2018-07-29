@@ -91,7 +91,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 							rf.mu.Lock()
 							rf.voteNum += 1
 							rf.mu.Unlock()
-							fmt.Println(rf.me, "当前票数", rf.voteNum)
 
 							rf.checkElection()
 
@@ -111,9 +110,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 }
 
 func (rf *Raft) checkElection() {
-
+	fmt.Println(rf.me, "当前票数", rf.voteNum)
 	if rf.voteNum > rf.n/2 && rf.state == 1 {
 
+		fmt.Println(rf.me, "当前票数", rf.voteNum)
 		fmt.Println(rf.me, "选举成功")
 
 		rf.state = 2
@@ -124,7 +124,7 @@ func (rf *Raft) checkElection() {
 
 		// 周期心跳协议
 		for {
-
+			fmt.Println(rf.me, "发送heartbeat")
 			if rf.state != 2 {
 				break
 			}
