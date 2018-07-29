@@ -44,8 +44,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.log = append(rf.log, entry)
 
 	fmt.Println(rf.me, "append", cmd, "to itself")
+	fmt.Println(rf.me, rf.log)
 
-	nCommit := 0
+	// 当前有nCommit个server已经 append数据，初始为1，表示当前leader已append
+	nCommit := 1
 	// 复制log
 	for i := 0; i < rf.n; i++ {
 		if i == rf.me {
@@ -79,8 +81,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				return
 			}
 
-			fmt.Println("reply", reply)
-
 			if reply.Success {
 				// append成功
 				nCommit++
@@ -96,7 +96,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				} else {
 					// follower的日志太短，减小index重试
 					rf.nextIndex[i] = Max(rf.nextIndex[i]-2, 1)
-					fmt.Println("重试？")
+					fmt.Println(rf.me, "重试append to", i, "， nextIndex", rf.nextIndex[i])
+
 					goto Loop
 
 				}
@@ -109,18 +110,21 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// 检查log是否复制成功
 	go func(rf *Raft, cmd int) {
 		for {
-			fmt.Println("nCommit", nCommit)
+			fmt.Println(rf.me, "start nCommit", index, nCommit)
 			if rf.state != 2 {
 				break
 			}
 			if nCommit >= rf.n/2 {
 				// commit成功
+				rf.mu.Lock()
 				rf.commitIndex++
+				rf.mu.Unlock()
+
 				// 告知tester
 				applyMsg := ApplyMsg{
 					CommandValid: true,
 					Command:      cmd,
-					CommandIndex: rf.commitIndex,
+					CommandIndex: index,
 				}
 				rf.applyCh <- applyMsg
 				break
@@ -129,6 +133,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}(rf, cmd)
-
+	
 	return index, term, isLeader
 }

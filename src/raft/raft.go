@@ -187,33 +187,34 @@ type RequestVoteReply struct {
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	reply.Term = rf.currentTerm
 
-	if rf.currentTerm < args.Term {
+	rf.lastReceive = now()
 
-		reply.VoteGranted = true
-
-		rf.votedFor = args.CandidateId
-		rf.lastReceive = now()
-
-		//如果接收到的 RPC 请求或响应中，任期号T > currentTerm，那么就令 currentTerm 等于 T，并切换状态为跟随者（5.1 节）
-		rf.state = 0
-		rf.currentTerm = args.Term
-
-	} else if rf.currentTerm == args.Term && (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && checkLog(rf, args) {
-		reply.VoteGranted = true
-
-		rf.votedFor = args.CandidateId
-		rf.lastReceive = now()
-
-		//如果接收到的 RPC 请求或响应中，任期号T > currentTerm，那么就令 currentTerm 等于 T，并切换状态为跟随者（5.1 节）
-		rf.state = 0
-		rf.currentTerm = args.Term
-	} else {
-		reply.VoteGranted = false
+	if args.Term < rf.currentTerm {
+		reply.Term = rf.currentTerm
+		return
 	}
 
-	fmt.Println("after vote", rf.me, "term", rf.currentTerm)
+	//如果接收到的 RPC 请求或响应中，任期号T > currentTerm，那么就令 currentTerm 等于 T，并切换状态为跟随者（5.1 节）
+	if args.Term > rf.currentTerm {
+		rf.state = 0
+		rf.currentTerm = args.Term
+	}
+
+	// 如果 votedFor 为空或者就是 candidateId，
+	// 这个不太清楚，什么情况下 votedFor 是candidateId还会再投票？
+	// votedFor在下一轮选举的时候要清空？
+	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && checkLog(rf, args) {
+
+		reply.VoteGranted = true
+
+		rf.votedFor = args.CandidateId
+
+		fmt.Println(rf.me, "vote for", args.CandidateId)
+	}
+
+	reply.Term = rf.currentTerm
+
 }
 
 func checkLog(rf *Raft, args *RequestVoteArgs) bool {
@@ -221,11 +222,12 @@ func checkLog(rf *Raft, args *RequestVoteArgs) bool {
 		return true
 	}
 	lastLogIndex := len(rf.log)
-	lastLogTerm := rf.log[lastLogIndex].Term
+	lastLogTerm := rf.log[lastLogIndex - 1].Term
+
 	if lastLogTerm < args.LastLogTerm {
 		return true
 	}
-	if lastLogTerm == args.LastLogTerm && lastLogIndex <= args.LastLogTerm {
+	if lastLogTerm == args.LastLogTerm && lastLogIndex <= args.LastLogIndex {
 		return true
 	}
 	return false
@@ -276,7 +278,7 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 
 	if args.Entries == nil {
-		fmt.Println(rf.me, "收到 heartbeat")
+		//fmt.Println(rf.me, "收到 heartbeat")
 	} else {
 		fmt.Println(rf.me, "收到 appendEntries")
 	}
@@ -285,6 +287,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// 如果 term < currentTerm 就返回 false
 	if args.Term < rf.currentTerm {
+		fmt.Println(rf.me,"args.Term < rf.currentTerm")
 		reply.Term = rf.currentTerm
 		reply.Success = false
 		return
@@ -304,34 +307,50 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	} else {
 		// append 日志
 
+
+		fmt.Println(rf.me, "args.PrevLogIndex",args.PrevLogIndex)
+		fmt.Println(rf.me, "len(rf.log)",len(rf.log))
 		if len(rf.log) == 0 {
+			// 初始情况len==0
 			reply.Success = true
 			// 一开始log为空，直接append
 			for i := 0; i < len(args.Entries); i++ {
 				rf.log = append(rf.log, args.Entries[i])
 			}
+
+			fmt.Println(rf.me, rf.log)
 		} else if len(rf.log) < args.PrevLogIndex {
 			// 当前log比较少
 			reply.Success = false
 
 		} else {
 
-			fmt.Println(rf.me, "len(rf.log)", rf.log)
-			fmt.Println("args.PrevLogIndex", args.PrevLogIndex)
-			prevLog := rf.log[args.PrevLogIndex - 1]
+			//fmt.Println(rf.me, "len(rf.log)", rf.log)
+			//fmt.Println("args.PrevLogIndex", args.PrevLogIndex)
 
-			//如果日志在 prevLogIndex 位置处的日志条目的任期号和 prevLogTerm 不匹配，则返回 false
-
-			// 这里的匹配应该是 term和cmd都匹配吧？
-			// 难道任期号和索引值相同，command也一定相同？
-			if prevLog.Term != args.PrevLogTerm {
-
-				rf.log = rf.log[0:args.PrevLogIndex-1]
+			if args.PrevLogIndex == 0 {
+				// 一步步回退，直到回退到0，直接完全复制leader的log
+				rf.log = args.Entries
+				reply.Success = true
 
 			} else {
-				reply.Success = true
-				for i := 0; i < len(args.Entries); i++ {
-					rf.log = append(rf.log, args.Entries[i])
+				prevLog := rf.log[args.PrevLogIndex - 1]
+
+				//如果日志在 prevLogIndex 位置处的日志条目的任期号和 prevLogTerm 不匹配，则返回 false
+
+				// 这里的匹配应该是 term和cmd都匹配吧？
+				// 难道任期号和索引值相同，command也一定相同？
+				if prevLog.Term != args.PrevLogTerm {
+
+					rf.log = rf.log[0:args.PrevLogIndex-1]
+
+				} else {
+					fmt.Println(rf.me, "append?")
+					reply.Success = true
+					for i := 0; i < len(args.Entries); i++ {
+						rf.log = append(rf.log, args.Entries[i])
+					}
+					fmt.Println(rf.me, rf.log)
 				}
 			}
 
@@ -339,18 +358,23 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	}
 
+
 	// 不管是哪个if分支，最后肯定有这个
 	reply.Term = rf.currentTerm
 
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	// 为什么？
+	fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
 	if args.LeaderCommit > rf.commitIndex {
 
-		fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
-		fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex",rf.log)
+		//fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
+		//fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex", rf.log)
+
+		tmpIndex := rf.commitIndex
+		rf.commitIndex = Min(args.LeaderCommit, len(rf.log))
 
 		// commit之后告诉tester，用于测试
-		for i:=rf.commitIndex+1; i <= args.LeaderCommit ;i++  {
+		for i:=tmpIndex+1; i <= rf.commitIndex ;i++  {
 			applyMsg := ApplyMsg{
 				CommandValid: true,
 				Command:      rf.log[i - 1].Command,
@@ -360,7 +384,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			rf.applyCh <- applyMsg
 		}
 
-		rf.commitIndex = args.LeaderCommit
+		// 一种可能的情况，当前server disconnect，此时 leader仍能commit,LeaderCommit还在增加，
+		// 等当前server再次connect的时候，commitIndex比较小，而且log比较少。
+
 	}
 
 	//fmt.Println(reply)

@@ -85,7 +85,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 								return
 							}
 
-							fmt.Println(rf.me, "vote receive from", target, reply)
+							// fmt.Println(rf.me, "vote receive from", target, reply)
 
 							// 收到投票，原子操作加1
 							rf.mu.Lock()

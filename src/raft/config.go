@@ -18,7 +18,9 @@ import crand "crypto/rand"
 import "math/big"
 import "encoding/base64"
 import "time"
-import "fmt"
+import (
+	"fmt"
+)
 
 func randstring(n int) string {
 	b := make([]byte, 2*n)
@@ -188,6 +190,7 @@ func (cfg *config) start1(i int) {
 				cfg.mu.Unlock()
 
 				if m.CommandIndex > 1 && prevok == false {
+					fmt.Println(m.CommandIndex, prevok)
 					err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.CommandIndex)
 				}
 			} else {
@@ -367,9 +370,26 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		}
 
 		cfg.mu.Lock()
+
+		//fmt.Print(i, " nCommitted: ")
+
+		//// To store the keys in slice in sorted order
+		//var keys []int
+		//for k := range cfg.logs[i] {
+		//	keys = append(keys, k)
+		//}
+		//sort.Ints(keys)
+		//
+		//// To perform the opertion you want
+		//for _, k := range keys {
+		//	fmt.Print(k, ":", cfg.logs[i][k], ", ")
+		//}
+		//fmt.Println()
+
 		cmd1, ok := cfg.logs[i][index]
 		cfg.mu.Unlock()
 
+		//fmt.Println(i, ", cmd1, index", cmd1, index)
 		if ok {
 			if count > 0 && cmd != cmd1 {
 				cfg.t.Fatalf("committed values do not match: index %v, %v, %v\n",
