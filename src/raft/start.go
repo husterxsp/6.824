@@ -52,7 +52,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	rf.mu.Unlock()
 
-
 	// 当前有nCommit个server已经 append数据，初始为1，表示当前leader已append
 	nCommit := 1
 	// 复制log
@@ -64,20 +63,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		go func(rf *Raft, i int, nextIndex int) {
 		Loop:
 
-			// 还是并发导致的错误，
-			//if rf.nextIndex[i] > len(rf.log) {
-			//	return
-			//}
-
 			rf.nextIndex[i] = Min(rf.nextIndex[i], len(rf.log)+1)
 
 			fmt.Println(rf.me, "start append", cmd, "to", i)
 
-			fmt.Println(rf.me, "i", i, "rf.nextIndex[i], rf.log", rf.nextIndex[i], rf.log)
-
-			//if rf.nextIndex[i]-1 < 0 || rf.nextIndex[i] > len(rf.log) {
-			//	fmt.Println(rf.me, "i", i, "rf.nextIndex[i]", rf.nextIndex[i])
-			//}
 			args := AppendEntriesArgs{
 				Term:         rf.currentTerm,
 				LeaderId:     rf.me,
@@ -107,8 +96,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 				fmt.Println(rf.me, "rf.nextIndex[i] += len(args.Entries)", rf.nextIndex[i], len(args.Entries))
 
-				rf.nextIndex[i] = Max(rf.nextIndex[i], args.PrevLogIndex + len(args.Entries) + 1)
-				//rf.nextIndex[i] += len(args.Entries)
+				rf.nextIndex[i] = Max(rf.nextIndex[i], args.PrevLogIndex+len(args.Entries)+1)
 
 				rf.nextIndex[i] = Min(rf.nextIndex[i], len(rf.log)+1)
 
