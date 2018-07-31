@@ -32,6 +32,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		return index, term, isLeader
 	}
 
+	// 这里需要加锁，可能出现同时append，多个线程同时写 rf.log
+	rf.mu.Lock()
+
+	// 这里就需要加，因为多个线程同时访问，最终可能导致写入的index相同
 	index = len(rf.log) + 1
 
 	cmd := command.(int)
@@ -46,6 +50,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	fmt.Println(rf.me, "append", cmd, "to itself")
 	fmt.Println(rf.me, rf.log)
 
+	rf.mu.Unlock()
+
+
 	// 当前有nCommit个server已经 append数据，初始为1，表示当前leader已append
 	nCommit := 1
 	// 复制log
@@ -58,12 +65,19 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		Loop:
 
 			// 还是并发导致的错误，
-			if rf.nextIndex[i] > len(rf.log) {
-				return
-			}
+			//if rf.nextIndex[i] > len(rf.log) {
+			//	return
+			//}
+
+			rf.nextIndex[i] = Min(rf.nextIndex[i], len(rf.log)+1)
 
 			fmt.Println(rf.me, "start append", cmd, "to", i)
-			fmt.Println("rf.nextIndex[i], rf.log", rf.nextIndex[i], rf.log)
+
+			fmt.Println(rf.me, "i", i, "rf.nextIndex[i], rf.log", rf.nextIndex[i], rf.log)
+
+			//if rf.nextIndex[i]-1 < 0 || rf.nextIndex[i] > len(rf.log) {
+			//	fmt.Println(rf.me, "i", i, "rf.nextIndex[i]", rf.nextIndex[i])
+			//}
 			args := AppendEntriesArgs{
 				Term:         rf.currentTerm,
 				LeaderId:     rf.me,
@@ -91,7 +105,12 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				// append成功
 				nCommit++
 
-				rf.nextIndex[i] += len(args.Entries)
+				fmt.Println(rf.me, "rf.nextIndex[i] += len(args.Entries)", rf.nextIndex[i], len(args.Entries))
+
+				rf.nextIndex[i] = Max(rf.nextIndex[i], args.PrevLogIndex + len(args.Entries) + 1)
+				//rf.nextIndex[i] += len(args.Entries)
+
+				rf.nextIndex[i] = Min(rf.nextIndex[i], len(rf.log)+1)
 
 			} else {
 				// 失败的两种可能
@@ -122,7 +141,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			if rf.state != 2 {
 				break
 			}
-			if nCommit > rf.n/2 && rf.commitIndex == index - 1 {
+			if nCommit > rf.n/2 && rf.commitIndex == index-1 {
 
 				// commit成功
 				rf.mu.Lock()

@@ -75,7 +75,6 @@ type Raft struct {
 
 	applyCh chan ApplyMsg
 
-
 	applyChArr []int
 }
 
@@ -209,7 +208,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// votedFor在下一轮选举的时候要清空？
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && checkLog(rf, args) {
 
-		fmt.Println(rf.me, "rf.votedFor",rf.votedFor)
+		fmt.Println(rf.me, "rf.votedFor", rf.votedFor)
 		reply.VoteGranted = true
 
 		rf.votedFor = args.CandidateId
@@ -226,7 +225,7 @@ func checkLog(rf *Raft, args *RequestVoteArgs) bool {
 		return true
 	}
 	lastLogIndex := len(rf.log)
-	lastLogTerm := rf.log[lastLogIndex - 1].Term
+	lastLogTerm := rf.log[lastLogIndex-1].Term
 
 	if lastLogTerm < args.LastLogTerm {
 		return true
@@ -285,16 +284,16 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.votedFor = -1
 
 	if args.Entries == nil {
-		fmt.Println(rf.me, "收到 heartbeat")
+		fmt.Println(rf.me, "收到 heartbeat, 对应 commitIndex", rf.commitIndex, args.LeaderCommit)
 	} else {
-		fmt.Println(rf.me, "收到 appendEntries", "rf.log",rf.log, "args.Entries", args.Entries)
+		fmt.Println(rf.me, "收到 appendEntries", "rf.log", rf.log, "args.Entries", args.Entries)
 	}
 
 	rf.lastReceive = now()
 
 	// 如果 term < currentTerm 就返回 false
 	if args.Term < rf.currentTerm {
-		fmt.Println(rf.me,"args.Term < rf.currentTerm")
+		fmt.Println(rf.me, "args.Term < rf.currentTerm")
 		reply.Term = rf.currentTerm
 		reply.Success = false
 		return
@@ -314,9 +313,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	} else {
 		// append 日志
 
-
-		//fmt.Println(rf.me, "args.PrevLogIndex",args.PrevLogIndex)
-		//fmt.Println(rf.me, "len(rf.log)",len(rf.log))
 		if len(rf.log) == 0 {
 			// 初始情况len==0
 			reply.Success = true
@@ -332,48 +328,39 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		} else {
 
-			//fmt.Println(rf.me, "len(rf.log)", rf.log)
-			//fmt.Println("args.PrevLogIndex", args.PrevLogIndex)
+			//如果日志在 prevLogIndex 位置处的日志条目的任期号和 prevLogTerm 不匹配，则返回 false
 
-			if args.PrevLogIndex == 0 {
-				// 一步步回退，直到回退到0，直接完全复制leader的log
-				rf.log = args.Entries
-				reply.Success = true
+			// 这里的匹配应该是 term和cmd都匹配吧？
+			// 难道任期号和索引值相同，command也一定相同？
+
+			// 只有在产生冲突（索引值相同但是任期号不同）的时候才删除follower的日志！不能随便删除（并发时候的错误：log已经和leader一致了，
+			// 但是因为前面的append请求后到达，导致已经append的后面的日志又删了。）
+
+			if args.PrevLogIndex > 0 && rf.log[args.PrevLogIndex-1].Term != args.PrevLogTerm {
+
+				reply.Success = false
+				rf.log = rf.log[0 : args.PrevLogIndex-1]
 
 			} else {
-				//fmt.Println(rf.me, args.PrevLogIndex)
-				prevLog := rf.log[args.PrevLogIndex - 1]
 
-				//如果日志在 prevLogIndex 位置处的日志条目的任期号和 prevLogTerm 不匹配，则返回 false
+				reply.Success = true
+				for i := 0; i < len(args.Entries); i++ {
 
-				// 这里的匹配应该是 term和cmd都匹配吧？
-				// 难道任期号和索引值相同，command也一定相同？
-
-				//fmt.Println(rf.me, "prevLog.Term != args.PrevLogTerm", prevLog.Term, args.PrevLogTerm)
-
-				if prevLog.Term != args.PrevLogTerm {
-
-					rf.log = rf.log[0:args.PrevLogIndex-1]
-
-				} else {
-					if len(rf.log) > args.PrevLogIndex {
-						rf.log = rf.log[0:args.PrevLogIndex]
+					entry := args.Entries[i]
+					if entry.LogIndex <= len(rf.log) {
+						rf.log[entry.LogIndex-1] = entry
+					} else {
+						rf.log = append(rf.log, entry)
 					}
 
-					fmt.Println(rf.me, rf.log)
-					//fmt.Println(rf.me, "append", args.Entries)
-					reply.Success = true
-					for i := 0; i < len(args.Entries); i++ {
-						rf.log = append(rf.log, args.Entries[i])
-					}
-					fmt.Println(rf.me, rf.log)
 				}
+
+				fmt.Println(rf.me, rf.log)
 			}
 
 		}
 
 	}
-
 
 	// 不管是哪个if分支，最后肯定有这个
 	reply.Term = rf.currentTerm
@@ -383,8 +370,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	//fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
 	if args.LeaderCommit > rf.commitIndex {
 
-		//fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
-		//fmt.Println(rf.me,"args.LeaderCommit > rf.commitIndex", rf.log)
+		fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
+		fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", rf.log)
 
 		tmpIndex := rf.commitIndex
 
@@ -395,19 +382,17 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 		// commit之后告诉tester，用于测试
 
-
-		for i:=tmpIndex+1; i <= rf.commitIndex ;i++  {
+		for i := tmpIndex + 1; i <= rf.commitIndex; i++ {
 			applyMsg := ApplyMsg{
 				CommandValid: true,
-				Command:      rf.log[i - 1].Command,
+				Command:      rf.log[i-1].Command,
 				CommandIndex: i,
 			}
-			fmt.Println(rf.me,"send to channel")
+			fmt.Println(rf.me, "send to channel")
 
 			rf.applyCh <- applyMsg
 
 		}
-
 
 	}
 
