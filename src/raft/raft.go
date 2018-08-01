@@ -68,7 +68,10 @@ type Raft struct {
 	matchIndex []int
 
 	timeout     int
-	lastReceive int // 记录上次收到消息的时间
+
+	// 记录上次收到消息的时间
+	// 如果收到的请求不满足 leader 的要求，则不更新时间，即认为暂时没收到来自正确的leader的请求。
+	lastReceive int
 	n           int
 	voteNum     int
 	state       int // 0 follower, 1 candidate, 2 leader
@@ -190,8 +193,6 @@ type RequestVoteReply struct {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 
-	rf.lastReceive = now()
-
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		return
@@ -214,6 +215,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = args.CandidateId
 
 		fmt.Println(rf.me, "vote for", args.CandidateId)
+
+		rf.lastReceive = now()
 	}
 
 	reply.Term = rf.currentTerm
@@ -284,20 +287,20 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.votedFor = -1
 
 	if args.Entries == nil {
-		fmt.Println(rf.me, "收到 heartbeat, 对应 commitIndex", rf.commitIndex, args.LeaderCommit)
+		fmt.Println(rf.me, "收到 heartbeat ", args)
 	} else {
 		fmt.Println(rf.me, "收到 appendEntries", "rf.log", rf.log, "args.Entries", args.Entries)
 	}
 
-	rf.lastReceive = now()
-
 	// 如果 term < currentTerm 就返回 false
 	if args.Term < rf.currentTerm {
-		fmt.Println(rf.me, "args.Term < rf.currentTerm")
+		fmt.Println(rf.me, "args.Term < rf.currentTerm", args.Term, rf.currentTerm)
 		reply.Term = rf.currentTerm
 		reply.Success = false
 		return
 	}
+
+	rf.lastReceive = now()
 
 	// 如果接收到的 RPC 请求或响应中，任期号T > currentTerm，那么就令 currentTerm 等于 T，并切换状态为跟随者
 	if args.Term > rf.currentTerm {
@@ -370,6 +373,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	//fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
 	if args.LeaderCommit > rf.commitIndex {
 
+		if args.PrevLogIndex > 0 && args.PrevLogIndex <= len(rf.log) && rf.log[args.PrevLogIndex - 1].Term != args.PrevLogTerm {
+			return
+		}
+
 		fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
 		fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", rf.log)
 
@@ -379,6 +386,11 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// 等当前server再次connect的时候，commitIndex比较小，而且log比较少。
 
 		rf.commitIndex = Min(args.LeaderCommit, len(rf.log))
+		// 只能到PrevLogIndex， 因为 PrevLogIndex 之后的日志可能还未达成一致
+
+		if args.PrevLogIndex >= tmpIndex {
+			rf.commitIndex = Min(rf.commitIndex, args.PrevLogIndex)
+		}
 
 		// commit之后告诉tester，用于测试
 

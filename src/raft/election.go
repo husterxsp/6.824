@@ -124,30 +124,37 @@ func (rf *Raft) checkElection() {
 
 		// 周期心跳协议
 		for {
-			fmt.Println(rf.me, "发送heartbeat")
+			//fmt.Println(rf.me, "发送heartbeat")
 			if rf.state != 2 {
 				break
 			}
 
 			time.Sleep(time.Duration(100) * time.Millisecond)
 
-			for j := 0; j < rf.n; j++ {
-				if j != rf.me {
+			for i := 0; i < rf.n; i++ {
+				if i != rf.me {
 
-					go func(rf *Raft, j int) {
+					go func(rf *Raft, i int) {
 						args := AppendEntriesArgs{
 							Term:         rf.currentTerm,
 							LeaderId:     rf.me,
-							PrevLogIndex: 0,
+							PrevLogIndex: rf.nextIndex[i] - 1,
 							PrevLogTerm:  0,
 							Entries:      nil,
 							LeaderCommit: rf.commitIndex,
 						}
+
+						// 解决问题：leader已commit, follower日志还没达成一致,但是因为 heartbeat ，导致follower也commit.
+						// 所以更新commitIndex的时候再加些限制
+						if args.PrevLogIndex > 0 {
+							args.PrevLogTerm = rf.log[args.PrevLogIndex-1].Term
+						}
+
 						reply := AppendEntriesReply{
 							Term:    rf.currentTerm,
 							Success: false,
 						}
-						ok := rf.sendAppendEntries(j, &args, &reply)
+						ok := rf.sendAppendEntries(i, &args, &reply)
 
 						// 需要重试吗？
 						if !ok {
@@ -159,7 +166,8 @@ func (rf *Raft) checkElection() {
 							rf.state = 0
 						}
 
-					}(rf, j)
+					}(rf, i)
+
 				}
 			}
 

@@ -102,6 +102,13 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 			} else {
 				// 失败的两种可能
+				// 并发的问题，可能一个请求失败，然后立即修改当前rf.currentTerm. 然后下一个请求失败，又可以重试。
+
+				fmt.Println(rf.me, "失败 reply.Term", reply.Term)
+				if rf.state == 0 {
+					return
+				}
+
 				if reply.Term > rf.currentTerm {
 					// 当前任期小，转换为follower
 					rf.currentTerm = reply.Term
@@ -109,7 +116,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				} else {
 					// follower的日志太短，减小index重试
 					rf.nextIndex[i] = Max(rf.nextIndex[i]-2, 1)
-					fmt.Println(rf.me, "重试append to", i, "， nextIndex", rf.nextIndex[i])
+
+
+					fmt.Println(rf.me, "重试append to", i, "， nextIndex", rf.nextIndex[i], "reply.Term > rf.currentTerm", reply.Term, rf.currentTerm)
 
 					goto Loop
 
@@ -125,7 +134,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		for {
 			// 一种情况，由于是并发的，所以可能 CommandIndex=3的消息比CommandIndex=2的消息先commit?
 			// 此时应该加个同步，CommandIndex=3 commit的时候，检查一下，
-			fmt.Println(rf.me, "nCommit", index, nCommit)
+			//fmt.Println(rf.me, "nCommit", index, nCommit)
 			if rf.state != 2 {
 				break
 			}
