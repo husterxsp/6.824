@@ -32,13 +32,23 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		return index, term, isLeader
 	}
 
+	cmd := command.(int)
+
 	// 这里需要加锁，可能出现同时append，多个线程同时写 rf.log
 	rf.mu.Lock()
 
 	// 这里就需要加，因为多个线程同时访问，最终可能导致写入的index相同
+
+
+
+	if len(rf.log) > 0 && rf.log[len(rf.log) - 1].Command == cmd && rf.commitIndex < len(rf.log) {
+		// append失败重试的问题
+		// 那如果这样改的话，就不能连续写入两个相同的命令？
+		rf.log = rf.log[0:len(rf.log)-1]
+	}
+
 	index = len(rf.log) + 1
 
-	cmd := command.(int)
 	entry := Entry{
 		LogIndex: len(rf.log) + 1,
 		Command:  cmd,
@@ -96,7 +106,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				// append成功
 				nCommit++
 				fmt.Println(rf.me, "nCommit++", nCommit)
-				
+
 				fmt.Println(rf.me, "rf.nextIndex[i] += len(args.Entries)", rf.nextIndex[i], len(args.Entries))
 
 				rf.nextIndex[i] = Max(rf.nextIndex[i], args.PrevLogIndex+len(args.Entries)+1)
