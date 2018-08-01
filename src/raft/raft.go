@@ -67,7 +67,7 @@ type Raft struct {
 	nextIndex  []int
 	matchIndex []int
 
-	timeout     int
+	timeout int
 
 	// 记录上次收到消息的时间
 	// 如果收到的请求不满足 leader 的要求，则不更新时间，即认为暂时没收到来自正确的leader的请求。
@@ -344,6 +344,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				reply.Success = false
 				rf.log = rf.log[0 : args.PrevLogIndex-1]
 
+				// 冲突了，直接return
+				return
+
 			} else {
 
 				reply.Success = true
@@ -373,7 +376,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	//fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
 	if args.LeaderCommit > rf.commitIndex {
 
-		if args.PrevLogIndex > 0 && args.PrevLogIndex <= len(rf.log) && rf.log[args.PrevLogIndex - 1].Term != args.PrevLogTerm {
+		if args.PrevLogIndex > 0 && args.PrevLogIndex <= len(rf.log) && rf.log[args.PrevLogIndex-1].Term != args.PrevLogTerm {
 			return
 		}
 
@@ -400,7 +403,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				Command:      rf.log[i-1].Command,
 				CommandIndex: i,
 			}
-			fmt.Println(rf.me, "send to channel")
+			fmt.Println(rf.me, "send to channel", applyMsg, "rf.log", rf.log, "i", i)
 
 			rf.applyCh <- applyMsg
 

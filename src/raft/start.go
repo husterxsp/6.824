@@ -90,10 +90,13 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				return
 			}
 
+			fmt.Println(rf.me, "reply.Success", reply.Success)
+
 			if reply.Success {
 				// append成功
 				nCommit++
-
+				fmt.Println(rf.me, "nCommit++", nCommit)
+				
 				fmt.Println(rf.me, "rf.nextIndex[i] += len(args.Entries)", rf.nextIndex[i], len(args.Entries))
 
 				rf.nextIndex[i] = Max(rf.nextIndex[i], args.PrevLogIndex+len(args.Entries)+1)
@@ -117,7 +120,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 					// follower的日志太短，减小index重试
 					rf.nextIndex[i] = Max(rf.nextIndex[i]-2, 1)
 
-
 					fmt.Println(rf.me, "重试append to", i, "， nextIndex", rf.nextIndex[i], "reply.Term > rf.currentTerm", reply.Term, rf.currentTerm)
 
 					goto Loop
@@ -138,6 +140,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			if rf.state != 2 {
 				break
 			}
+			fmt.Println("nCommit", nCommit)
+			fmt.Println("rf.commitIndex == index-1", rf.commitIndex, index-1)
+
 			if nCommit > rf.n/2 && rf.commitIndex == index-1 {
 
 				// commit成功

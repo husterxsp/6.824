@@ -54,7 +54,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 			if (now()-rf.lastReceive > rf.timeout && rf.state == 0) || rf.state == 1 {
 
-				fmt.Println(rf.me, "开始选举")
+				fmt.Println(rf.me, "开始选举", rf.log)
 
 				// 超时重新开始选举
 				rf.currentTerm += 1
