@@ -671,18 +671,28 @@ func TestPersist32C(t *testing.T) {
 	cfg.one(101, 3, true)
 
 	leader := cfg.checkOneLeader()
+	fmt.Println("disconnect ", (leader+2)%servers)
 	cfg.disconnect((leader + 2) % servers)
 
 	cfg.one(102, 2, true)
 
+	fmt.Println("crash1 ", (leader+0)%servers, (leader+1)%servers)
+
 	cfg.crash1((leader + 0) % servers)
 	cfg.crash1((leader + 1) % servers)
+
+	fmt.Println("connect ", (leader+2)%servers)
 	cfg.connect((leader + 2) % servers)
+
+	fmt.Println("start1 ", (leader+0)%servers)
 	cfg.start1((leader + 0) % servers)
+
+	fmt.Println("connect ", (leader+0)%servers)
 	cfg.connect((leader + 0) % servers)
 
 	cfg.one(103, 2, true)
 
+	fmt.Println("start1 & connect", (leader+1)%servers)
 	cfg.start1((leader + 1) % servers)
 	cfg.connect((leader + 1) % servers)
 
