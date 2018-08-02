@@ -74,6 +74,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		go func(rf *Raft, i int, nextIndex int) {
 		Loop:
 
+			if rf.state != 2 {
+				return
+			}
+
 			rf.nextIndex[i] = Min(rf.nextIndex[i], len(rf.log)+1)
 
 			fmt.Println(rf.me, "start append", cmd, "to", i)

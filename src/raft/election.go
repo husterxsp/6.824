@@ -52,18 +52,18 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// 初始化一些状态
 	rf.readPersist(persister.ReadRaftState())
 
-	fmt.Println("timeout: ", rf.timeout)
+	// fmt.Println("timeout: ", rf.timeout)
 
 	go func(rf *Raft) {
 		for {
 			if rf.killed {
-				fmt.Println("kill goroutine!!")
+				// fmt.Println("kill goroutine!!")
 				return
 			}
 
 			time.Sleep(time.Duration(rf.timeout) * time.Millisecond)
 
-			fmt.Println(rf.me, "now()-rf.lastReceive > rf.timeout", now(), rf.lastReceive, now()-rf.lastReceive, rf.timeout)
+			// fmt.Println(rf.me, "now()-rf.lastReceive > rf.timeout", now(), rf.lastReceive, now()-rf.lastReceive, rf.timeout)
 			if (now()-rf.lastReceive > rf.timeout && rf.state == 0) || rf.state == 1 {
 
 				fmt.Println(rf.me, "开始选举", rf.log, rf.state)

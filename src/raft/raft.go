@@ -228,6 +228,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 		rf.votedFor = args.CandidateId
 		rf.lastReceive = now()
+
+		fmt.Println(rf.me, "rf.votedFor", rf.votedFor, "args.CandidateId", args.CandidateId)
 	}
 
 	reply.Term = rf.currentTerm
@@ -312,7 +314,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	rf.lastReceive = now()
-	fmt.Println(rf.me, "rf.lastReceive", rf.lastReceive)
+	// fmt.Println(rf.me, "rf.lastReceive", rf.lastReceive)
 
 	// 如果接收到的 RPC 请求或响应中，任期号T > currentTerm，那么就令 currentTerm 等于 T，并切换状态为跟随者
 	if args.Term > rf.currentTerm {
