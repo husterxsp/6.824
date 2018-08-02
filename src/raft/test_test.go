@@ -551,34 +551,56 @@ func TestPersist12C(t *testing.T) {
 
 	// crash and re-start all
 	for i := 0; i < servers; i++ {
+		fmt.Println("restart ", i)
 		cfg.start1(i)
 	}
 	for i := 0; i < servers; i++ {
+		fmt.Println("disconnect ", i)
 		cfg.disconnect(i)
+		fmt.Println("connect ", i)
 		cfg.connect(i)
 	}
 
 	cfg.one(12, servers, true)
 
 	leader1 := cfg.checkOneLeader()
+
+	fmt.Println("disconnect ", leader1)
+
 	cfg.disconnect(leader1)
+
+	fmt.Println("restart ", leader1)
+
 	cfg.start1(leader1)
 	cfg.connect(leader1)
 
 	cfg.one(13, servers, true)
 
 	leader2 := cfg.checkOneLeader()
+
+	fmt.Println("disconnect ", leader2)
+
 	cfg.disconnect(leader2)
 	cfg.one(14, servers-1, true)
+
+	fmt.Println("restart ", leader2)
 	cfg.start1(leader2)
+
+	fmt.Println("connect ", leader2)
 	cfg.connect(leader2)
 
+	// 这个地方，日志没有append成功，需要重试？
 	cfg.wait(4, servers, -1) // wait for leader2 to join before killing i3
 
 	i3 := (cfg.checkOneLeader() + 1) % servers
+
+	fmt.Println("disconnect ", i3)
 	cfg.disconnect(i3)
 	cfg.one(15, servers-1, true)
+
+	fmt.Println("restart ", i3)
 	cfg.start1(i3)
+	fmt.Println("connect ", i3)
 	cfg.connect(i3)
 
 	cfg.one(16, servers, true)

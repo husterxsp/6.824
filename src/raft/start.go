@@ -39,12 +39,10 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	// 这里就需要加，因为多个线程同时访问，最终可能导致写入的index相同
 
-
-
-	if len(rf.log) > 0 && rf.log[len(rf.log) - 1].Command == cmd && rf.commitIndex < len(rf.log) {
+	if len(rf.log) > 0 && rf.log[len(rf.log)-1].Command == cmd && rf.commitIndex < len(rf.log) {
 		// append失败重试的问题
 		// 那如果这样改的话，就不能连续写入两个相同的命令？
-		rf.log = rf.log[0:len(rf.log)-1]
+		rf.log = rf.log[0 : len(rf.log)-1]
 	}
 
 	index = len(rf.log) + 1
@@ -56,6 +54,9 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	}
 
 	rf.log = append(rf.log, entry)
+
+	// 每次修改log时持久化
+	rf.persist()
 
 	fmt.Println(rf.me, "append", cmd, "to itself")
 	fmt.Println(rf.me, rf.log)
@@ -97,7 +98,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			ok := rf.sendAppendEntries(i, &args, &reply)
 
 			if !ok {
-				return
+				// 失败重试
+				goto Loop
 			}
 
 			fmt.Println(rf.me, "reply.Success", reply.Success)
@@ -150,9 +152,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 			if rf.state != 2 {
 				break
 			}
-			fmt.Println("nCommit", nCommit)
-			fmt.Println("rf.commitIndex == index-1", rf.commitIndex, index-1)
 
+			fmt.Println(rf.me, nCommit, "rf.commitIndex == index-1", rf.commitIndex, index)
 			if nCommit > rf.n/2 && rf.commitIndex == index-1 {
 
 				// commit成功
@@ -167,6 +168,11 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 					CommandIndex: index,
 				}
 				rf.applyCh <- applyMsg
+
+				// commitIndex 变化也 persist
+				rf.persist()
+
+				fmt.Println(rf.me, "Commit ", index)
 				break
 			}
 

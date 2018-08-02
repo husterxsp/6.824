@@ -46,15 +46,27 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.n = len(peers)
 	rf.votedFor = -1
 
+	// 如果不加这个字段，kill 当前rf 的时候，下面的检测开始选举的 goroutine还会运行
+	rf.killed = false
+	// initialize from state persisted before a crash
+	// 初始化一些状态
+	rf.readPersist(persister.ReadRaftState())
+
 	fmt.Println("timeout: ", rf.timeout)
 
 	go func(rf *Raft) {
 		for {
+			if rf.killed {
+				fmt.Println("kill goroutine!!")
+				return
+			}
+
 			time.Sleep(time.Duration(rf.timeout) * time.Millisecond)
 
+			fmt.Println(rf.me, "now()-rf.lastReceive > rf.timeout", now(), rf.lastReceive, now()-rf.lastReceive, rf.timeout)
 			if (now()-rf.lastReceive > rf.timeout && rf.state == 0) || rf.state == 1 {
 
-				fmt.Println(rf.me, "开始选举", rf.log)
+				fmt.Println(rf.me, "开始选举", rf.log, rf.state)
 
 				// 超时重新开始选举
 				rf.currentTerm += 1
@@ -103,9 +115,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	}(rf)
 
-	// initialize from state persisted before a crash
-	rf.readPersist(persister.ReadRaftState())
-
 	return rf
 }
 
@@ -124,7 +133,6 @@ func (rf *Raft) checkElection() {
 
 		// 周期心跳协议
 		for {
-			//fmt.Println(rf.me, "发送heartbeat")
 			if rf.state != 2 {
 				break
 			}
@@ -132,43 +140,44 @@ func (rf *Raft) checkElection() {
 			time.Sleep(time.Duration(100) * time.Millisecond)
 
 			for i := 0; i < rf.n; i++ {
-				if i != rf.me {
-
-					go func(rf *Raft, i int) {
-						args := AppendEntriesArgs{
-							Term:         rf.currentTerm,
-							LeaderId:     rf.me,
-							PrevLogIndex: rf.nextIndex[i] - 1,
-							PrevLogTerm:  0,
-							Entries:      nil,
-							LeaderCommit: rf.commitIndex,
-						}
-
-						// 解决问题：leader已commit, follower日志还没达成一致,但是因为 heartbeat ，导致follower也commit.
-						// 所以更新commitIndex的时候再加些限制
-						if args.PrevLogIndex > 0 {
-							args.PrevLogTerm = rf.log[args.PrevLogIndex-1].Term
-						}
-
-						reply := AppendEntriesReply{
-							Term:    rf.currentTerm,
-							Success: false,
-						}
-						ok := rf.sendAppendEntries(i, &args, &reply)
-
-						// 需要重试吗？
-						if !ok {
-							return
-						}
-
-						if !reply.Success {
-							rf.currentTerm = reply.Term
-							rf.state = 0
-						}
-
-					}(rf, i)
-
+				if i == rf.me {
+					continue
 				}
+
+				go func(rf *Raft, i int) {
+					args := AppendEntriesArgs{
+						Term:         rf.currentTerm,
+						LeaderId:     rf.me,
+						PrevLogIndex: rf.nextIndex[i] - 1,
+						PrevLogTerm:  0,
+						Entries:      nil,
+						LeaderCommit: rf.commitIndex,
+					}
+
+					// 解决问题：leader已commit, follower日志还没达成一致,但是因为 heartbeat ，导致follower也commit.
+					// 所以更新commitIndex的时候再加些限制
+					if args.PrevLogIndex > 0 {
+						args.PrevLogTerm = rf.log[args.PrevLogIndex-1].Term
+					}
+
+					reply := AppendEntriesReply{
+						Term:    rf.currentTerm,
+						Success: false,
+					}
+					ok := rf.sendAppendEntries(i, &args, &reply)
+
+					// 需要重试吗？
+					if !ok {
+						return
+					}
+
+					if !reply.Success {
+						rf.currentTerm = reply.Term
+						rf.state = 0
+					}
+
+				}(rf, i)
+
 			}
 
 		}

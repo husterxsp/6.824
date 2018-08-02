@@ -18,15 +18,14 @@ package raft
 //
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"time"
 
+	"../labgob"
 	"../labrpc"
 )
-
-// import "bytes"
-// import "labgob"
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -78,7 +77,7 @@ type Raft struct {
 
 	applyCh chan ApplyMsg
 
-	applyChArr []int
+	killed bool
 }
 
 // a struct to hold information about each log entry.
@@ -96,18 +95,10 @@ func (rf *Raft) GetState() (int, bool) {
 	var isleader bool
 
 	// Your code here (2A).
+
 	term = rf.currentTerm
-
-	//if rf.state == 2 {
-	//	isleader = true
-	//} else {
-	//	isleader = false
-	//}
-
 	if rf.state == 2 {
 		isleader = true
-	} else {
-		isleader = false
 	}
 
 	return term, isleader
@@ -121,12 +112,17 @@ func (rf *Raft) GetState() (int, bool) {
 func (rf *Raft) persist() {
 	// Your code here (2C).
 	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// data := w.Bytes()
-	// rf.persister.SaveRaftState(data)
+
+	fmt.Println(rf.me, "persist", rf.log, rf.currentTerm, rf.votedFor, rf.commitIndex)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.log)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.commitIndex)
+
+	data := w.Bytes()
+	rf.persister.SaveRaftState(data)
 }
 
 //
@@ -149,6 +145,26 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+
+	var log []Entry
+	var term int
+	var voteFor int
+	var commitIndex int
+
+	d.Decode(&log)
+	d.Decode(&term)
+	d.Decode(&voteFor)
+	d.Decode(&commitIndex)
+
+	rf.log = log
+	rf.currentTerm = term
+	rf.votedFor = voteFor
+	rf.commitIndex = commitIndex
+
+	fmt.Println(rf.me, "readPersist", rf.log, rf.currentTerm, rf.votedFor, rf.commitIndex)
 }
 
 type AppendEntriesArgs struct {
@@ -208,14 +224,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// 这个不太清楚，什么情况下 votedFor 是candidateId还会再投票？
 	// votedFor在下一轮选举的时候要清空？
 	if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && checkLog(rf, args) {
-
-		fmt.Println(rf.me, "rf.votedFor", rf.votedFor)
 		reply.VoteGranted = true
 
 		rf.votedFor = args.CandidateId
-
-		fmt.Println(rf.me, "vote for", args.CandidateId)
-
 		rf.lastReceive = now()
 	}
 
@@ -301,6 +312,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 
 	rf.lastReceive = now()
+	fmt.Println(rf.me, "rf.lastReceive", rf.lastReceive)
 
 	// 如果接收到的 RPC 请求或响应中，任期号T > currentTerm，那么就令 currentTerm 等于 T，并切换状态为跟随者
 	if args.Term > rf.currentTerm {
@@ -343,6 +355,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 				reply.Success = false
 				rf.log = rf.log[0 : args.PrevLogIndex-1]
+
+				// 每次修改log时持久化
+				rf.persist()
 
 				// 冲突了，直接return
 				return
@@ -411,7 +426,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	}
 
-	//fmt.Println(reply)
+	// 每次修改log时持久化
+	rf.persist()
+
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -429,6 +446,8 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 //
 func (rf *Raft) Kill() {
 	// Your code here, if desired.
+	fmt.Println("Kill!!")
+	rf.killed = true
 }
 
 // Election
