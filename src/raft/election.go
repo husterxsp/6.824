@@ -1,7 +1,7 @@
 package raft
 
 import (
-	"fmt"
+	"log"
 	"math/rand"
 	"time"
 
@@ -52,30 +52,30 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// 初始化一些状态
 	rf.readPersist(persister.ReadRaftState())
 
-	// fmt.Println("timeout: ", rf.timeout)
+	// log.Println("timeout: ", rf.timeout)
 
 	go func(rf *Raft) {
 		for {
 			if rf.killed {
-				// fmt.Println("kill goroutine!!")
+				// log.Println("kill goroutine!!")
 				return
 			}
 
 			time.Sleep(time.Duration(rf.timeout) * time.Millisecond)
 
-			// fmt.Println(rf.me, "now()-rf.lastReceive > rf.timeout", now(), rf.lastReceive, now()-rf.lastReceive, rf.timeout)
+			// log.Println(rf.me, "now()-rf.lastReceive > rf.timeout", now(), rf.lastReceive, now()-rf.lastReceive, rf.timeout)
 			if (now()-rf.lastReceive > rf.timeout && rf.state == 0) || rf.state == 1 {
 
-				fmt.Println(rf.me, "开始选举", rf.log, rf.state)
+				log.Println(rf.me, "开始选举", rf.log, rf.state)
 
 				// 超时重新开始选举
 				rf.currentTerm += 1
 				rf.voteNum = 1
 				rf.timeout = randTimeout()
-				rf.votedFor = -1
+				rf.votedFor = rf.me
 				rf.state = 1
 
-				fmt.Println(rf.me, "当前状态:", "term", rf.currentTerm, "state", rf.state)
+				log.Println(rf.me, "当前状态:", "term", rf.currentTerm, "state", rf.state)
 
 				for i := 0; i < len(peers); i++ {
 					if i != rf.me {
@@ -93,11 +93,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 							ok := rf.sendRequestVote(target, &args, &reply)
 
+							log.Println(rf.me, "vote receive ", target, "reply.VoteGranted", reply.VoteGranted)
 							if !ok || !reply.VoteGranted {
+								rf.votedFor = -1
+								if reply.Term > rf.currentTerm {
+									rf.currentTerm = reply.Term
+								}
 								return
 							}
-
-							// fmt.Println(rf.me, "vote receive from", target, reply)
 
 							// 收到投票，原子操作加1
 							rf.mu.Lock()
@@ -119,16 +122,18 @@ func Make(peers []*labrpc.ClientEnd, me int,
 }
 
 func (rf *Raft) checkElection() {
-	fmt.Println(rf.me, "当前票数", rf.voteNum)
+	log.Println(rf.me, "当前票数", rf.voteNum)
 	if rf.voteNum > rf.n/2 && rf.state == 1 {
 
-		fmt.Println(rf.me, "当前票数", rf.voteNum)
-		fmt.Println(rf.me, "选举成功")
+		log.Println(rf.me, "当前票数", rf.voteNum)
+		log.Println(rf.me, "选举成功")
 
 		rf.state = 2
 		rf.nextIndex = make([]int, rf.n)
+		rf.matchIndex = make([]int, rf.n)
 		for i := 0; i < rf.n; i++ {
 			rf.nextIndex[i] = len(rf.log) + 1
+			rf.matchIndex[i] = 0
 		}
 
 		// 周期心跳协议
@@ -171,10 +176,16 @@ func (rf *Raft) checkElection() {
 						return
 					}
 
-					if !reply.Success {
+					if reply.Term > rf.currentTerm {
 						rf.currentTerm = reply.Term
 						rf.state = 0
 					}
+
+
+					//if !reply.Success {
+					//	rf.currentTerm = reply.Term
+					//	rf.state = 0
+					//}
 
 				}(rf, i)
 

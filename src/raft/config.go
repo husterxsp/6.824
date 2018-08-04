@@ -169,7 +169,7 @@ func (cfg *config) start1(i int) {
 	applyCh := make(chan ApplyMsg)
 	go func() {
 		for m := range applyCh {
-			fmt.Println(i, "applyCh message", m)
+			log.Println(i, "applyCh message", m)
 			err_msg := ""
 			if m.CommandValid == false {
 				// ignore other types of ApplyMsg
@@ -190,11 +190,6 @@ func (cfg *config) start1(i int) {
 				cfg.mu.Unlock()
 
 				if m.CommandIndex > 1 && prevok == false {
-					fmt.Println("--------")
-					for i := 0; i < cfg.n; i++ {
-						fmt.Println("---", cfg.logs[i])
-					}
-					fmt.Println("--------")
 					err_msg = fmt.Sprintf("server %v apply out of order %v", i, m.CommandIndex)
 				}
 			} else {
@@ -388,12 +383,10 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		//for _, k := range keys {
 		//	fmt.Print(k, ":", cfg.logs[i][k], ", ")
 		//}
-		//fmt.Println()
 
 		cmd1, ok := cfg.logs[i][index]
 		cfg.mu.Unlock()
 
-		//fmt.Println(i, ", cmd1, index", cmd1, index)
 		if ok {
 			if count > 0 && cmd != cmd1 {
 				cfg.t.Fatalf("committed values do not match: index %v, %v, %v\n",
@@ -478,7 +471,6 @@ func (cfg *config) one(cmd int, expectedServers int, retry bool) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
-				// fmt.Println("cfg.nCommitted(index)", nd, cmd1)
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd2, ok := cmd1.(int); ok && cmd2 == cmd {

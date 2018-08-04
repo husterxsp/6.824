@@ -1,7 +1,7 @@
 package raft
 
 import (
-	"fmt"
+	"log"
 	"time"
 )
 
@@ -58,8 +58,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// 每次修改log时持久化
 	rf.persist()
 
-	fmt.Println(rf.me, "append", cmd, "to itself")
-	fmt.Println(rf.me, rf.log)
+	log.Println(rf.me, "append", cmd, "to itself")
+	log.Println(rf.me, rf.log)
 
 	rf.mu.Unlock()
 
@@ -80,7 +80,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 			rf.nextIndex[i] = Min(rf.nextIndex[i], len(rf.log)+1)
 
-			fmt.Println(rf.me, "start append", cmd, "to", i)
+			log.Println(rf.me, "start append", cmd, "to", i)
 
 			args := AppendEntriesArgs{
 				Term:         rf.currentTerm,
@@ -106,14 +106,14 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				goto Loop
 			}
 
-			fmt.Println(rf.me, "reply.Success", reply.Success)
+			log.Println(rf.me, "reply.Success", reply.Success)
 
 			if reply.Success {
 				// append成功
 				nCommit++
-				fmt.Println(rf.me, "nCommit++", nCommit)
+				log.Println(rf.me, "nCommit++", nCommit)
 
-				fmt.Println(rf.me, "rf.nextIndex[i] += len(args.Entries)", rf.nextIndex[i], len(args.Entries))
+				log.Println(rf.me, "rf.nextIndex[i] += len(args.Entries)", rf.nextIndex[i], len(args.Entries))
 
 				rf.nextIndex[i] = Max(rf.nextIndex[i], args.PrevLogIndex+len(args.Entries)+1)
 
@@ -123,7 +123,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 				// 失败的两种可能
 				// 并发的问题，可能一个请求失败，然后立即修改当前rf.currentTerm. 然后下一个请求失败，又可以重试。
 
-				fmt.Println(rf.me, "失败 reply.Term", reply.Term)
+				log.Println(rf.me, "失败 reply.Term", reply.Term)
 				if rf.state == 0 {
 					return
 				}
@@ -136,7 +136,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 					// follower的日志太短，减小index重试
 					rf.nextIndex[i] = Max(rf.nextIndex[i]-2, 1)
 
-					fmt.Println(rf.me, "重试append to", i, "， nextIndex", rf.nextIndex[i], "reply.Term > rf.currentTerm", reply.Term, rf.currentTerm)
+					log.Println(rf.me, "重试append to", i, "， nextIndex", rf.nextIndex[i], "reply.Term > rf.currentTerm", reply.Term, rf.currentTerm)
 
 					goto Loop
 
@@ -152,31 +152,36 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		for {
 			// 一种情况，由于是并发的，所以可能 CommandIndex=3的消息比CommandIndex=2的消息先commit?
 			// 此时应该加个同步，CommandIndex=3 commit的时候，检查一下，
-			//fmt.Println(rf.me, "nCommit", index, nCommit)
+			//log.Println(rf.me, "nCommit", index, nCommit)
 			if rf.state != 2 {
 				break
 			}
 
-			fmt.Println(rf.me, nCommit, "rf.commitIndex == index-1", rf.commitIndex, index)
-			if nCommit > rf.n/2 && rf.commitIndex == index-1 {
+			log.Println(rf.me, nCommit, "rf.commitIndex == index-1", rf.commitIndex, index)
 
-				// commit成功
+			if nCommit > rf.n/2 {
+
 				rf.mu.Lock()
-				rf.commitIndex++
+				tmpIndex := rf.commitIndex
+				if rf.commitIndex < index {
+					rf.commitIndex = index
+				}
 				rf.mu.Unlock()
 
 				// 告知tester
-				applyMsg := ApplyMsg{
-					CommandValid: true,
-					Command:      cmd,
-					CommandIndex: index,
+				for i := tmpIndex + 1; i <= index; i++ {
+					applyMsg := ApplyMsg{
+						CommandValid: true,
+						Command:      rf.log[i-1].Command,
+						CommandIndex: i,
+					}
+					rf.applyCh <- applyMsg
 				}
-				rf.applyCh <- applyMsg
 
 				// commitIndex 变化也 persist
 				rf.persist()
 
-				fmt.Println(rf.me, "Commit ", index)
+				log.Println(rf.me, "Commit ", index)
 				break
 			}
 

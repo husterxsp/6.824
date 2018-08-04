@@ -12,14 +12,14 @@ package raft
 // rf.GetState() (term, isLeader)
 //   ask a Raft for its current term, and whether it thinks it is leader
 // ApplyMsg
-//   each time a new entry is committed to the log, each Raft peer
+//   each time a new entr y is committed to the log, each Raft peer
 //   should send an ApplyMsg to the service (or tester)
 //   in the same server.
 //
 
 import (
 	"bytes"
-	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -113,7 +113,7 @@ func (rf *Raft) persist() {
 	// Your code here (2C).
 	// Example:
 
-	fmt.Println(rf.me, "persist", rf.log, rf.currentTerm, rf.votedFor, rf.commitIndex)
+	log.Println(rf.me, "persist", rf.log, rf.currentTerm, rf.votedFor, rf.commitIndex)
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	e.Encode(rf.log)
@@ -149,22 +149,22 @@ func (rf *Raft) readPersist(data []byte) {
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
 
-	var log []Entry
+	var logs []Entry
 	var term int
 	var voteFor int
 	var commitIndex int
 
-	d.Decode(&log)
+	d.Decode(&logs)
 	d.Decode(&term)
 	d.Decode(&voteFor)
 	d.Decode(&commitIndex)
 
-	rf.log = log
+	rf.log = logs
 	rf.currentTerm = term
 	rf.votedFor = voteFor
 	rf.commitIndex = commitIndex
 
-	fmt.Println(rf.me, "readPersist", rf.log, rf.currentTerm, rf.votedFor, rf.commitIndex)
+	log.Println(rf.me, "readPersist", rf.log, rf.currentTerm, rf.votedFor, rf.commitIndex)
 }
 
 type AppendEntriesArgs struct {
@@ -210,6 +210,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 
 	if args.Term < rf.currentTerm {
+		log.Println(rf.me, "refused to vote for", args.CandidateId)
 		reply.Term = rf.currentTerm
 		return
 	}
@@ -229,7 +230,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = args.CandidateId
 		rf.lastReceive = now()
 
-		fmt.Println(rf.me, "rf.votedFor", rf.votedFor, "args.CandidateId", args.CandidateId)
+		log.Println(rf.me, "rf.votedFor", rf.votedFor, "args.CandidateId", args.CandidateId)
+	} else {
+		log.Println(rf.me, "refused to vote for", args.CandidateId)
 	}
 
 	reply.Term = rf.currentTerm
@@ -300,21 +303,21 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.votedFor = -1
 
 	if args.Entries == nil {
-		fmt.Println(rf.me, "收到 heartbeat ", args)
+		log.Println(rf.me, "收到 heartbeat ", args)
 	} else {
-		fmt.Println(rf.me, "收到 appendEntries", "rf.log", rf.log, "args.Entries", args.Entries)
+		log.Println(rf.me, "收到 appendEntries", "rf.log", rf.log, "args.Entries", args.Entries)
 	}
 
 	// 如果 term < currentTerm 就返回 false
 	if args.Term < rf.currentTerm {
-		fmt.Println(rf.me, "args.Term < rf.currentTerm", args.Term, rf.currentTerm)
+		log.Println(rf.me, "args.Term < rf.currentTerm", args.Term, rf.currentTerm)
 		reply.Term = rf.currentTerm
 		reply.Success = false
 		return
 	}
 
 	rf.lastReceive = now()
-	// fmt.Println(rf.me, "rf.lastReceive", rf.lastReceive)
+	// log.Println(rf.me, "rf.lastReceive", rf.lastReceive)
 
 	// 如果接收到的 RPC 请求或响应中，任期号T > currentTerm，那么就令 currentTerm 等于 T，并切换状态为跟随者
 	if args.Term > rf.currentTerm {
@@ -327,6 +330,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		if args.Term >= rf.currentTerm {
 			reply.Success = true
 		}
+
+
 	} else {
 		// append 日志
 
@@ -338,7 +343,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				rf.log = append(rf.log, args.Entries[i])
 			}
 
-			fmt.Println(rf.me, rf.log)
+			log.Println(rf.me, rf.log)
 		} else if len(rf.log) < args.PrevLogIndex {
 			// 当前log比较少
 			reply.Success = false
@@ -378,27 +383,29 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 				}
 
-				fmt.Println(rf.me, rf.log)
+				log.Println(rf.me, rf.log)
 			}
 
 		}
 
 	}
 
-	// 不管是哪个if分支，最后肯定有这个
-	reply.Term = rf.currentTerm
-
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
 	// 为什么？
-	//fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
+	//log.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
 	if args.LeaderCommit > rf.commitIndex {
 
 		if args.PrevLogIndex > 0 && args.PrevLogIndex <= len(rf.log) && rf.log[args.PrevLogIndex-1].Term != args.PrevLogTerm {
 			return
 		}
 
-		fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
-		fmt.Println(rf.me, "args.LeaderCommit > rf.commitIndex", rf.log)
+		// hack
+		if args.PrevLogIndex > len(rf.log) {
+			return
+		}
+
+		log.Println(rf.me, "args.LeaderCommit > rf.commitIndex", args.LeaderCommit, rf.commitIndex)
+		log.Println(rf.me, "args.LeaderCommit > rf.commitIndex", rf.log)
 
 		tmpIndex := rf.commitIndex
 
@@ -420,7 +427,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 				Command:      rf.log[i-1].Command,
 				CommandIndex: i,
 			}
-			fmt.Println(rf.me, "send to channel", applyMsg, "rf.log", rf.log, "i", i)
+			log.Println(rf.me, "send to channel", applyMsg, "rf.log", rf.log, "i", i)
 
 			rf.applyCh <- applyMsg
 
@@ -448,7 +455,7 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 //
 func (rf *Raft) Kill() {
 	// Your code here, if desired.
-	fmt.Println("Kill!!")
+	log.Println("Kill!!")
 	rf.killed = true
 }
 
